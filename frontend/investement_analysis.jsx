@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
 import {
   Container,
   Paper,
@@ -187,30 +188,65 @@ const FancyLoader = () => {
 
 const InvestmentAnalysis = () => {
   const theme = useTheme();
-  const [projectId, setProjectId] = useState('');
+  const { projectId } = useParams(); // Extract projectId from URL
   const [isLoading, setIsLoading] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(null);
   const [error, setError] = useState(null);
 
+  // Automatically fetch data when component mounts or projectId changes
+  useEffect(() => {
+    if (projectId) {
+      handleAnalyzeProject();
+    }
+  }, [projectId]);
+
   const handleAnalyzeProject = async () => {
-    if (!projectId.trim()) return;
+    if (!projectId) {
+      setError("No project ID provided in the URL");
+      return;
+    }
     
     setIsLoading(true);
     setError(null);
     setAnalysisResult(null);
     
     try {
-      // Fetch investment prediction from API
-      const response = await fetch(`/api/predict_investment/${projectId}/`);
+      // Fetch investment prediction from API with explicit headers
+      const response = await fetch(`/api/predict_investment/${projectId}/`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      // Check if the response is JSON before parsing
+      const contentType = response.headers.get('content-type');
       
       if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`);
+        // Try to get error details if available in JSON format
+        if (contentType && contentType.includes('application/json')) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || `Error ${response.status}: ${response.statusText}`);
+        } else {
+          // Handle non-JSON error response
+          const textResponse = await response.text();
+          console.error('Non-JSON error response:', textResponse.substring(0, 100) + '...');
+          throw new Error(`Server returned non-JSON response (${response.status})`);
+        }
+      }
+      
+      // Verify we have JSON before parsing
+      if (!contentType || !contentType.includes('application/json')) {
+        console.error('Unexpected content type:', contentType);
+        throw new Error('Server did not return JSON. Please check your API endpoint configuration.');
       }
       
       const data = await response.json();
       setAnalysisResult(data);
     } catch (err) {
       setError(err.message || 'Failed to analyze project');
+      console.error('Analysis error:', err);
     } finally {
       setIsLoading(false);
     }
@@ -265,46 +301,27 @@ const InvestmentAnalysis = () => {
           <Box display="flex" alignItems="center" gap={1.5}>
             <TrendingUpIcon sx={{ fontSize: 28 }} />
             <Typography variant="h5" sx={{ fontWeight: 600 }}>
-              Investment Analysis
+              Investment Analysis {projectId ? `- Project ${projectId}` : ''}
             </Typography>
           </Box>
         </Header>
         
         <ContentArea>
-          <StyledCard>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Project Analysis
-              </Typography>
-              <Typography variant="body2" color="text.secondary" mb={2}>
-                Enter a project ID to analyze its investment potential and get AI-powered insights.
-              </Typography>
-              <FormSection>
-                <TextField
-                  label="Project ID"
-                  value={projectId}
-                  onChange={(e) => setProjectId(e.target.value)}
-                  variant="outlined"
-                  fullWidth
-                  placeholder="Enter project ID"
-                  disabled={isLoading}
-                />
-                <Button
-                  variant="contained"
-                  color="primary"
-                  onClick={handleAnalyzeProject}
-                  disabled={!projectId.trim() || isLoading}
-                  sx={{ 
-                    height: 56, 
-                    px: 3,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  Analyze Project
-                </Button>
-              </FormSection>
-            </CardContent>
-          </StyledCard>
+          {!projectId && (
+            <StyledCard>
+              <CardContent>
+                <Box display="flex" alignItems="center" gap={1.5} mb={1}>
+                  <ErrorOutlineIcon color="warning" />
+                  <Typography variant="h6" color="text.primary">
+                    No Project Selected
+                  </Typography>
+                </Box>
+                <Typography variant="body1">
+                  This page should be accessed via a project link. Please go back and select a project.
+                </Typography>
+              </CardContent>
+            </StyledCard>
+          )}
 
           {isLoading && (
             <Fade in={isLoading} timeout={300}>
