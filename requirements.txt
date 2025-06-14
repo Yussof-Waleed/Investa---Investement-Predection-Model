@@ -9,5 +9,4 @@ scipy==1.11.1
 jupyter==1.0.0
 notebook==7.0.2 
 dotenv
-requests
 groq

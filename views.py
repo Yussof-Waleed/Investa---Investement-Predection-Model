@@ -6,7 +6,6 @@ from firebase_admin import db
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from dotenv import load_dotenv
-import requests
 from groq import Groq
 
 
@@ -191,8 +190,14 @@ def predict_investment(request, project_id):
         prediction_data = prepare_prediction_data(project_info, analysis_info)
         df = pd.DataFrame([prediction_data])
         
-        # Make prediction
-        success_probability = predict_investment_success(df, components)
+        # Make prediction and ensure it's a valid JSON number
+        success_probability = float(predict_investment_success(df, components))
+        # Handle potential NaN or infinity values that would break JSON
+        if pd.isna(success_probability) or not np.isfinite(success_probability):
+            success_probability = 0.0
+        
+        # Clamp probability to valid range for safety
+        success_probability = max(0.0, min(1.0, success_probability))
         
         # Determine risk level and recommendation
         if success_probability < 0.3:
@@ -246,26 +251,44 @@ def predict_investment(request, project_id):
                 key_insights.append("Healthy profit margins")
             elif prediction_data['profit_margin'] < 0:
                 key_insights.append("Currently operating at a loss")
+                
+        # If we ended up with no insights, provide a default
+        if not key_insights:
+            key_insights = ["Insufficient data for detailed insights"]
         
-        # Return comprehensive response
+        # Return comprehensive response with JSON-safe values
         response_data = {
-            "project_id": project_id,
-            "project_name": project_info.get('projectName', 'Unnamed Project'),
+            "project_id": str(project_id),
+            "project_name": str(project_info.get('projectName', 'Unnamed Project')),
             "prediction": {
                 "success_probability": float(success_probability),
                 "success_percentage": float(success_probability * 100),
-                "risk_level": risk_level,
-                "risk_indicator": risk_emoji,
-                "recommendation": recommendation
+                "risk_level": str(risk_level),
+                "risk_indicator": str(risk_emoji),
+                "recommendation": str(recommendation)
             },
-            "key_insights": key_insights,
-            "analysis_timestamp": datetime.now().isoformat(),
+            "key_insights": [str(insight) for insight in key_insights],
+            "analysis_timestamp": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
             "model_info": "Random Forest Regressor (R² score: 0.87)"
         }
+        
+        # Validate that the response can be properly serialized
+        try:
+            import json
+            json.dumps(response_data)
+        except (TypeError, ValueError) as json_err:
+            # If serialization fails, return a simplified valid response
+            return Response({
+                "error": "Data serialization issue",
+                "details": str(json_err),
+                "project_id": str(project_id),
+                "success_probability": float(success_probability)
+            })
         
         return Response(response_data)
         
     except Exception as e:
+        # Ensure the error response is also valid JSON
         return Response({
             "error": "Failed to generate prediction",
             "details": str(e)
