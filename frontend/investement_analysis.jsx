@@ -406,3 +406,5 @@ const InvestmentAnalysis = () => {
 };
 
 export default InvestmentAnalysis;
+
+// <Route path="/investment-analysis/:projectId" element={<InvestmentAnalysis />} />
