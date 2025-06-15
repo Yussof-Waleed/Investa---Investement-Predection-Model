@@ -10,3 +10,8 @@ jupyter==1.0.0
 notebook==7.0.2 
 dotenv
 groq
+
+# ID Detection and validation
+ultralytics
+opencv-python>=4.7.0
+easyocr>=1.7.0

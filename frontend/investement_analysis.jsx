@@ -217,7 +217,10 @@ const InvestmentAnalysis = () => {
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true', // Skip ngrok warning if using ngrok
         },
+        // Add credentials if your API requires authentication
+        credentials: 'include',
       });
       
       // Check if the response is JSON before parsing
