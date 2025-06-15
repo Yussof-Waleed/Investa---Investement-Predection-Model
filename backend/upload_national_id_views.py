@@ -21,10 +21,59 @@ from ultralytics import YOLO
 # Initialize EasyOCR reader (done once for efficiency)
 reader = easyocr.Reader(['ar'], gpu=False)
 
-# Helper function to get model paths relative to this file
+# Enhanced helper function to find model files with fallback paths
 def get_model_path(model_name):
-    """Get the path to a model file in the saved_models directory."""
-    return os.path.join(os.path.dirname(__file__), 'saved_models', model_name)
+    """
+    Get the path to a model file with fallback options.
+    
+    Args:
+        model_name: Name of the model file
+        
+    Returns:
+        str: Path to the model file if found, otherwise raises FileNotFoundError
+    """
+    # List of possible locations to check
+    possible_paths = [
+        # Relative to the current file
+        os.path.join(os.path.dirname(__file__), 'saved_models', model_name),
+        
+        # Relative to the project root
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), 'saved_models', model_name),
+        
+        # Absolute path options
+        os.path.abspath(os.path.join('saved_models', model_name)),
+        
+        # Just the model name (if it's in the Python path)
+        model_name,
+    ]
+    
+    # Check if any of the paths exist
+    for path in possible_paths:
+        if os.path.exists(path):
+            print(f"Found model at: {path}")
+            return path
+    
+    # If we got here, none of the paths worked
+    raise FileNotFoundError(f"Could not find model file: {model_name}. Searched in: {possible_paths}")
+
+# Function to safely load YOLO model with error handling
+def load_yolo_model(model_name):
+    """
+    Safely load a YOLO model with error handling.
+    
+    Args:
+        model_name: Name of the model file
+    
+    Returns:
+        YOLO model if successful, None if failed
+    """
+    try:
+        model_path = get_model_path(model_name)
+        print(f"Loading model from: {model_path}")
+        return YOLO(model_path)
+    except Exception as e:
+        print(f"Error loading model {model_name}: {str(e)}")
+        return None
 
 # ====================================================
 # UTILITY FUNCTIONS
@@ -317,6 +366,7 @@ def upload_national_card(request):
     """
     errors = {}
     temp_files = []
+    id_card_model = None
     
     try:
         # Required field validation
@@ -364,10 +414,17 @@ def upload_national_card(request):
         back_temp.close()
         temp_files.append(back_temp.name)
         
+        # Try to load the ID card model
+        id_card_model = load_yolo_model('detect_id_card.pt')
+        
+        if id_card_model is None:
+            return JsonResponse({
+                'error': 'Configuration error',
+                'details': {'system': 'Failed to load ID card detection model. Please contact support.'}
+            }, status=500)
+        
         # ID card validation for front image
         try:
-            # Detect if image contains an ID card
-            id_card_model = YOLO(get_model_path('detect_id_card.pt'))
             front_results = id_card_model(front_temp.name)
             
             if len(front_results[0].boxes) == 0:
@@ -375,12 +432,19 @@ def upload_national_card(request):
             else:
                 # Try to extract information from the ID card
                 try:
-                    id_info = detect_and_process_id_card(front_temp.name)
-                    id_number = id_info[3]  # National ID number
+                    digit_model = load_yolo_model('detect_id.pt')
+                    object_model = load_yolo_model('detect_odjects.pt')
                     
-                    # Validate ID number (14 digits for Egyptian IDs)
-                    if not id_number or not re.match(r'^\d{14}$', id_number):
-                        errors['front_image'] = 'Invalid or unreadable ID number'
+                    if digit_model is None or object_model is None:
+                        errors['front_image'] = 'System could not load required models for ID processing'
+                    else:
+                        # Updated to use your existing detection function
+                        id_info = detect_and_process_id_card(front_temp.name)
+                        id_number = id_info[3]  # National ID number
+                        
+                        # Validate ID number (14 digits for Egyptian IDs)
+                        if not id_number or not re.match(r'^\d{14}$', id_number):
+                            errors['front_image'] = 'Invalid or unreadable ID number'
                 except Exception as e:
                     errors['front_image'] = f'Cannot extract information from ID card: {str(e)[:100]}. Please provide a clearer image'
         except Exception as e:
